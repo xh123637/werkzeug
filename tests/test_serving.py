@@ -168,6 +168,83 @@ def test_watchdog_reloader_ignores_closed_no_write(mock_trigger_reload: Mock) ->
     mock_trigger_reload.assert_not_called()
 
 
+@pytest.mark.parametrize("filename", ["app.py", "app.pyc", "lib.zip"])
+@patch.object(WatchdogReloaderLoop, "trigger_reload")
+def test_watchdog_reloader_matches_nested_files(
+    mock_trigger_reload: Mock, filename: str
+) -> None:
+    """Watchdog 7 matches patterns against the whole path, so the
+    reloader must use glob patterns such as ``**/*.py``.
+    https://github.com/pallets/werkzeug/issues/3342
+    """
+    pytest.importorskip("watchdog")
+    from watchdog.events import EVENT_TYPE_MODIFIED
+    from watchdog.events import FileModifiedEvent
+
+    reloader = WatchdogReloaderLoop()
+    event = FileModifiedEvent(f"/project/{filename}")
+    event.event_type = EVENT_TYPE_MODIFIED
+    reloader.event_handler.dispatch(event)
+    mock_trigger_reload.assert_called_once_with(f"/project/{filename}")
+
+
+@pytest.mark.parametrize(
+    "filename",
+    ["__pycache__/app.py", "__pycache__/app.pyc", ".git/objects/app.py"],
+)
+@patch.object(WatchdogReloaderLoop, "trigger_reload")
+def test_watchdog_reloader_ignores_common_dirs(
+    mock_trigger_reload: Mock, filename: str
+) -> None:
+    """Files under ignored directories such as ``__pycache__`` and
+    ``.git`` do not trigger a reload.
+    https://github.com/pallets/werkzeug/issues/3342
+    """
+    pytest.importorskip("watchdog")
+    from watchdog.events import EVENT_TYPE_MODIFIED
+    from watchdog.events import FileModifiedEvent
+
+    reloader = WatchdogReloaderLoop()
+    event = FileModifiedEvent(f"/project/{filename}")
+    event.event_type = EVENT_TYPE_MODIFIED
+    reloader.event_handler.dispatch(event)
+    mock_trigger_reload.assert_not_called()
+
+
+@patch.object(WatchdogReloaderLoop, "trigger_reload")
+def test_watchdog_reloader_extra_files_and_exclude_patterns(
+    mock_trigger_reload: Mock, tmp_path: Path
+) -> None:
+    """Extra files are still watched, and relative exclude patterns
+    still match at any depth, with watchdog 7 glob matching.
+    https://github.com/pallets/werkzeug/issues/3342
+    """
+    pytest.importorskip("watchdog")
+    from watchdog.events import EVENT_TYPE_MODIFIED
+    from watchdog.events import FileModifiedEvent
+
+    extra_file = tmp_path / "config.yaml"
+    reloader = WatchdogReloaderLoop(
+        extra_files=[str(extra_file)], exclude_patterns=["test_*.py"]
+    )
+
+    event = FileModifiedEvent(str(extra_file))
+    event.event_type = EVENT_TYPE_MODIFIED
+    reloader.event_handler.dispatch(event)
+    mock_trigger_reload.assert_called_once_with(str(extra_file))
+
+    mock_trigger_reload.reset_mock()
+    event = FileModifiedEvent(str(tmp_path / "test_app.py"))
+    event.event_type = EVENT_TYPE_MODIFIED
+    reloader.event_handler.dispatch(event)
+    mock_trigger_reload.assert_not_called()
+
+    event = FileModifiedEvent(str(tmp_path / "app.py"))
+    event.event_type = EVENT_TYPE_MODIFIED
+    reloader.event_handler.dispatch(event)
+    mock_trigger_reload.assert_called_once_with(str(tmp_path / "app.py"))
+
+
 @pytest.mark.parametrize("find", [_find_stat_paths, _find_watchdog_paths])
 def test_exclude_patterns(
     find: t.Callable[[set[str], set[str]], cabc.Iterable[str]],

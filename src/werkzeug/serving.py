@@ -1027,6 +1027,9 @@ def run_simple(
         tuple to create a typical context, or the string ``'adhoc'`` to
         generate a temporary self-signed certificate.
 
+    .. versionchanged:: 3.2
+        The ``watchdog`` reloader requires watchdog 7 or newer.
+
     .. versionchanged:: 2.1
         Instructions are shown for dealing with an "address already in
         use" error.

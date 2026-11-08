@@ -257,6 +257,22 @@ class StatReloaderLoop(ReloaderLoop):
                 self.trigger_reload(name)
 
 
+def _watchdog_pattern(pattern: str) -> str:
+    """Convert a pattern to the glob syntax watchdog 7 requires.
+
+    Watchdog 7 matches patterns with ``PurePath.full_match()``, so a
+    pattern must match the whole path. Relative patterns such as
+    ``*.py`` only matched before because watchdog 6 used
+    ``PurePath.match()``, which matched from the right. Prefixing
+    with ``**/`` restores matching at any depth. Absolute patterns
+    already match the whole path and are left alone.
+    """
+    if os.path.isabs(pattern) or pattern.startswith("**/"):
+        return pattern
+
+    return f"**/{pattern}"
+
+
 class WatchdogReloaderLoop(ReloaderLoop):
     def __init__(self, *args: t.Any, **kwargs: t.Any) -> None:
         from watchdog.events import EVENT_TYPE_CLOSED
@@ -295,12 +311,14 @@ class WatchdogReloaderLoop(ReloaderLoop):
 
         self.name = f"watchdog ({reloader_name})"
         self.observer = Observer()
-        extra_patterns = (p for p in self.extra_files if not os.path.isdir(p))
+        extra_patterns = (
+            _watchdog_pattern(p) for p in self.extra_files if not os.path.isdir(p)
+        )
         self.event_handler = EventHandler(
-            patterns=["*.py", "*.pyc", "*.zip", *extra_patterns],
+            patterns=["**/*.py", "**/*.pyc", "**/*.zip", *extra_patterns],
             ignore_patterns=[
-                *[f"*/{d}/*" for d in _ignore_common_dirs],
-                *self.exclude_patterns,
+                *[f"**/{d}/**" for d in _ignore_common_dirs],
+                *(_watchdog_pattern(p) for p in self.exclude_patterns),
             ],
         )
         self.should_reload = threading.Event()
